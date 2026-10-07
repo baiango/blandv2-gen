@@ -1,6 +1,6 @@
 # blandv2-gen
 
-Producer for the **blandv2** corpus — 197,006 bland-prose SFT rows (196,997
+Producer for the **blandv2** corpus — 197,016 bland-prose SFT rows (196,997
 usable after the standard filter) drawn from llama.cpp `llama-server`
 `/v1/completions`, style-stripped, gate-labeled, shipped as JSONL. This repo
 commits the full producer: drivers, gates, strip machinery, taxonomy leaves,
@@ -17,11 +17,14 @@ server launch flags are defaults only.
 
 ## How a row ships
 
-`leaves.jsonl` (119,534 genre×premise leaves; **line order = idx = shard map**)
-→ per leaf, draws at seed `911000000 + idx*10 + att` (att 0..59 retry budget,
-one draw per seed) → strip + glue (`build_dataset._style_strip_n`) →
-mechanical gates → verdict `pass` | `style` | `dupe` | `failed:<gate>` |
-`exhausted`. Row schema: see `build_dataset_v2.emit` (code is truth).
+`leaves.jsonl` (197,006 leaf lines — one `n` subgenre title each, 119,534
+unique `p` parent genres; **line order = idx = shard map**) → per leaf, draws
+at seed `911000000 + idx*10 + att` (att 0..59 retry budget, one draw per seed)
+→ strip + glue (`build_dataset._style_strip_n`) → mechanical gates → verdict.
+Emitted verdicts: `pass` | `style` | `failed` (gate names in the row's `gates`
+field) | `dupe` | `exhausted` — in the shipped run only `pass`/`style`/`failed`
+occur (k-dupes skip silently, the patch refilled every exhausted leaf). Row
+schema: see `build_dataset_v2.emit` (code is truth).
 
 ## Quickstart
 
@@ -65,13 +68,17 @@ PATCH_MAX=140 python3 patch_dead_trees.py
 | `restrip.py` | idempotent re-strip/re-gate from verbatim text |
 | `audit_final_shards.py` | final audit: residue, k-dupes, prose⟺style, band |
 | `make_generic.py` / `ceiling_probe.py` / `dataset_battery.py` / `scale_labels.py` | gate + probe deps |
-| `leaves.jsonl` | the 119,534-leaf taxonomy (committing it pins idx/shard/seed mapping) |
+| `leaves.jsonl` | the 197,006-leaf taxonomy (119,534 unique parent genres; committing it pins idx/shard/seed mapping) |
 | `box_setup_v2.sh` / `box_launch_v2.sh` | server setup + the 4-box launch used for the shipped run |
 
 ## Shipped-run stats
 
-4× RTX 3080Ti, ~46 h ≈ $22: 197,006 rows from 671M generated tokens (14% ship
-yield, 476 kept tokens/row flat). Dead-tree patch: 10/10 refilled on a Mac at
-$0 in 233 s (att 60–69). Final audit: consumed-surface residue 0, k-dupes 0,
-prose⟺style exact; 196,997 usable rows (19 `failed` + 7 `length` rows remain
-in the shards and are excluded by the standard filter).
+4× RTX 3080Ti, ~45.6 h, **$23.49 actual** (vast.ai `show invoices-v1 -c`,
+per-instance: 54420385 $13.62 + 54522591 $4.12 + 54522870 $3.83 + 54522460
+$1.92) ≈ $0.035 per 1M generated tokens: 197,006 rows from 671M generated
+tokens (14% ship yield, 476 kept tokens/row flat). Dead-tree patch: 10/10
+refilled on a Mac at $0 in 233 s (att 60–69) → `patch_dead10.jsonl`; merged
+shards = 197,016 rows. Final audit: consumed-surface residue 0, k-dupes 0,
+prose⟺style exact; 196,997 usable (95,769 `pass` + 101,228 `style`); the 19
+`failed` rows (14 loop, 4 incoherent, 1 loop+format) stay in the shards and
+are excluded by the standard filter.
