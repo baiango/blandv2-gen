@@ -4,7 +4,8 @@ Producer for the **blandv2** corpus — 197,016 bland-prose SFT rows (196,997
 usable after the standard filter) drawn from llama.cpp `llama-server`
 `/v1/completions`, style-stripped, gate-labeled, shipped as JSONL. This repo
 commits the full producer: drivers, gates, strip machinery, taxonomy leaves,
-dead-tree patch driver, and the audit. **The corpus data itself is not
+dead-tree patch driver, the genre-labeling chain (`labeling/`), and the audit.
+**The corpus data itself is not
 committed.**
 
 ## Model pin
@@ -24,7 +25,10 @@ at seed `911000000 + idx*10 + att` (att 0..59 retry budget, one draw per seed)
 Emitted verdicts: `pass` | `style` | `failed` (gate names in the row's `gates`
 field) | `dupe` | `exhausted` — in the shipped run only `pass`/`style`/`failed`
 occur (k-dupes skip silently, the patch refilled every exhausted leaf). Row
-schema: see `build_dataset_v2.emit` (code is truth).
+schema: see `build_dataset_v2.attempt` (row keys) and `main` (adds
+`parent`/`draws`) — code is truth. Every discarded draw (gate-fail or dupe) is
+appended to `<OUT>.rejects.jsonl` with `att` + gates — nothing is dropped
+in-memory.
 
 ## Quickstart
 
@@ -48,7 +52,7 @@ PATCH_MAX=140 python3 patch_dead_trees.py
 | var | meaning |
 |---|---|
 | `BLAND_URL` / `BLAND_URLS` | llama-server endpoint(s); comma list = multi-server fan-out |
-| `BLAND_OUT` | output `.jsonl` |
+| `BLAND_OUT` | output `.jsonl`; discards also append to `<BLAND_OUT>.rejects.jsonl` |
 | `BLAND_SHARD` | `i/n` — this worker's leaf range |
 | `BLAND_WORKERS` | draw threads |
 | `BLAND_ATTEMPTS` | per-leaf retry budget (shipped run: 60) |
@@ -70,6 +74,7 @@ PATCH_MAX=140 python3 patch_dead_trees.py
 | `make_generic.py` / `ceiling_probe.py` / `dataset_battery.py` / `scale_labels.py` | gate + probe deps |
 | `leaves.jsonl` | the 197,006-leaf taxonomy (119,534 unique parent genres; committing it pins idx/shard/seed mapping) |
 | `box_setup_v2.sh` / `box_launch_v2.sh` | server setup + the 4-box launch used for the shipped run |
+| `labeling/` | post-build chain: genre labels (WORLD+ENERGY+TAGS, 3-vote), retok `n_tok`, canonical row order, cfgate gate-key merge |
 
 ## Shipped-run stats
 
@@ -82,3 +87,11 @@ shards = 197,016 rows. Final audit: consumed-surface residue 0, k-dupes 0,
 prose⟺style exact; 196,997 usable (95,769 `pass` + 101,228 `style`); the 19
 `failed` rows (14 loop, 4 incoherent, 1 loop+format) stay in the shards and
 are excluded by the standard filter.
+
+## Shipped artifact
+
+The labeled corpus ships as the private HF dataset
+[`baiango/bland-stories-labeled`](https://huggingface.co/datasets/baiango/bland-stories-labeled)
+(cc0-1.0, single commit). Its card documents the flat schema — `prose` only on
+`style` rows, verbatim `text` everywhere — and the label fields
+(`world`/`energy`/`tags`/`confidence`) appended by `labeling/`.
