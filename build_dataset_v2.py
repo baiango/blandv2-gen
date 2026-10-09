@@ -67,6 +67,10 @@ END_RE = re.compile(r'[.!?…]["\')\]]?$')
 FAILHIST = Counter()   # (stop, first-gate) per discarded draw — real retry census
 ERR = Counter()        # client anomalies: http retries, empty first draws
 
+# USER RULE (standing): NO discarded draw is ever dropped in-memory. Every retry
+# (gate-fail or dupe) is appended to <OUT>.rejects.jsonl with att + gates why.
+REJ = None             # resolved in main() after sharding; None = not opened yet
+
 def gen2(prompt, seed, mx=CAP):
     # v1 chain pinned EXPLICITLY (top_k/top_p/min_p/temperature; k40 p95 t1.0
     # minp0.1; no rep-pen) + finish_reason captured (the model-stops audit).
@@ -151,21 +155,31 @@ def main():
     seen_k, n_ship, n_att, n_nostop = seen_k0, 0, 0, 0
     t0 = time.time()
     lock_out = open(OUT, "a")
+    global REJ
+    REJ = OUT + ".rejects.jsonl"                 # every discarded draw, with att
+    rej_out = open(REJ, "a")
+    rej_n = [0]
     def work(arg):
         idx, leaf, par = arg
         row = attempt(leaf, idx, 0, par)
+        rejects = []
         att = 1
         while att < ATTEMPTS and (row["verdict"] == "failed" or row["k"] in seen_k):
             FAILHIST[(row.get("stop", "?"),
                       (row.get("gates") or ["dupe"])[0])] += 1
+            rejects.append({"att": att, **row})   # KEPT: user rule, never discard
             row = attempt(leaf, idx, att, par); att += 1   # fresh seed every draw
         if row["verdict"] == "failed":
             row["verdict"], row["att"] = "exhausted", att
-        return {"parent": par, "draws": att, **row}
+        return {"parent": par, "draws": att, **row}, rejects
     with cf.ThreadPoolExecutor(WORKERS) as ex:
-        for n, row in enumerate(ex.map(work, pending), 1):
+        for n, (row, rejects) in enumerate(ex.map(work, pending), 1):
             n_att += row.get("draws", 1)
             if "no-stop" in (row.get("gates") or []): n_nostop += 1
+            for rj in rejects:                         # main-thread write: no lock
+                rej_out.write(json.dumps({"parent": row["parent"], **rj},
+                                         ensure_ascii=False) + "\n")
+                rej_n[0] += 1
             v = row["verdict"]
             if v in ("pass", "style") and row["k"] in seen_k:
                 row["verdict"] = "dupe"
@@ -178,9 +192,10 @@ def main():
                 print(f"  {n}/{len(pending)} ship={n_ship} ({n_ship/n:.1%}) "
                       f"draws/leaf={n_att/n:.1f} rate={n/el:.2f}/s "
                       f"eta_h={(len(pending)-n)/(n/el)/3600:.1f} err={dict(ERR)} "
-                      f"fails={FAILHIST.most_common(6)}", flush=True)
-    lock_out.flush(); lock_out.close()
+                      f"fails={FAILHIST.most_common(6)} rej={rej_n[0]}", flush=True)
+    lock_out.flush(); rej_out.flush(); lock_out.close(); rej_out.close()
     print(f"DONE rows={len(pending)} ship={n_ship} draws/leaf={n_att/max(len(pending),1):.1f} "
+          f"rejects={rej_n[0]} -> {REJ} "
           f"elapsed={(time.time()-t0)/3600:.2f}h -> {OUT}", flush=True)
 
 if __name__ == "__main__":
