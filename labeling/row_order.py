@@ -5,7 +5,8 @@ Canonical order (optional keys skipped when absent; unknown keys appended at
 end in original order so NOTHING is ever dropped):
 
     k, genre, parent, prompt, text, prose, n_tok, seed, stop, ends, verdict,
-    draws, att, review, gates, world, energy, tags, confidence
+    draws, att, review, gates, world, energy, tags, confidence,
+    gate_decision, gate_score, gate_fails, gate_defaulted
 
 Prose sits right after text (verbatim vs stripped side by side); driver meta
 grouped; labels last. Import reorder_row() from any writer that emits rows.
@@ -15,7 +16,8 @@ import json
 
 CANON = ["k", "genre", "parent", "prompt", "text", "prose", "n_tok", "seed",
          "stop", "ends", "verdict", "draws", "att", "review", "gates",
-         "world", "energy", "tags", "confidence"]
+         "world", "energy", "tags", "confidence",
+         "gate_decision", "gate_score", "gate_fails", "gate_defaulted"]
 
 
 def reorder_row(r):
